@@ -9,6 +9,7 @@ for polar code with N = 128 and rate = 0.5
 #define bSNR_dB 3.046          // Eb/N0 in dB
 #define N 128
 #define K 64
+#define n 7
 
 // seed for generating random number in (0, 1)
 const unsigned long long SEED = 1024; 
@@ -47,10 +48,13 @@ int main(void)
     int b;                      // current bit
     int PN[63];                 // 1 period of PN sequence
     int I[K];                   // information set
+    int B[K];                   // bit reversal
+    int r[n];                   // to compute bit reversal
     int errBlock = 0;           // number of block errors
     int temp;                   // temporary storage
-    int w[K];                   // information bits
+    // int w[K];                   // information bits
     int u[N];                   // info bits + frozen bits
+    int v[N];                   // after bit reversal
     int x[N];                   // polar codeword
     double y[N];                // codeword + Gaussian noise
 
@@ -73,6 +77,23 @@ int main(void)
         // pick most reliable channels
         I[i] = Q[N - 1 - i];
     }
+    // obtain B, the bit reversal for info bits only
+    // B[i] = bit reversal of I[i]
+    for (i = 0; i < K; i++) {
+        temp = I[i];
+        for (j = 0; j < n; j++) {
+            // find the least significant bit
+            r[j] = temp % 2;    
+            // right shift by 1 bit
+            temp = (temp  - r[j]) / 2;
+        }
+        B[i] = 0;
+        temp = 1;
+        for (j = 0; j < n; j++) {   // bit-reversed value
+            B[i] += (r[n - j - 1] * temp);   
+            temp = temp * 2;
+        }
+    }
     // read Fn from file
     Fn = (int **)calloc(N, sizeof(int *));
     for (i = 0; i < N; i++) {
@@ -85,18 +106,35 @@ int main(void)
         }
     }
     printf("Fn init completed.\n");     // for debug
-    // init all bits in u to 0
-    for (i = 0; i < N; i++)
+    // init both u and v as all-0
+    for (i = 0; i < N; i++) {
         u[i] = 0;
+        v[i] = 0;
+    }
     // run simulation until desired error blocks
     for (i = 0; errBlock < 50; i++) {
+        // Encoder
         /* use PN sequence to have K bits, and
         put them into information set in u */
         for (j = 0; j < K; j++)
             u[I[j]] = PN[(m + j) % 63];
-        // encode u to become x
-        // first, perform bit reversal
-        // then encode by Fn
+        // perform bit reversal
+        for (j = 0; j < K; j++)
+            v[B[j]] = u[I[j]];
+        // reset x to all-0
+        for (j = 0; j < N; j++)
+            x[j] = 0;
+        // encode by Fn
+        for (j = 0; j < K; j++)
+            if (v[B[j]] == 1)
+                // add the B[j]-th row to x
+                for (k = 0; k < N; k++) {
+                    // modulo-2 addition
+                    x[k] += Fn[B[j]][k];
+                    if (x[k] > 1) x[k] -= 2;
+                }
+        // Channel
+        // SC decoder
         m += step_m;                   // increase m
         errBlock += 1;
     }
