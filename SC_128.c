@@ -31,11 +31,19 @@ const int Q[N] = {
 118, 121, 122, 63, 124, 95, 111, 119, 123, 125, 126, 127};
 // n-kronecker product of F
 int **Fn; 
+// LLR of each node
+double L[n + 1][N];
+// whether LLR of a node has been computed
+int Done[n + 1][N];
 
 // generate a uniform random number
 double Ranq1();            
 // generate 2 normal random number given standard deviation
 void normal();
+// check node operation
+double CHK(double L1, double L2);
+// successive cancellation decoder
+int SCdecode(double *y);
 
 int main(void)
 {
@@ -134,7 +142,18 @@ int main(void)
                     if (x[k] > 1) x[k] -= 2;
                 }
         // Channel
+        // y = x + noise
+        for (j = 0; j < N; j += 2) {
+            normal();           // generate Gaussian noise
+            if (x[j] == 0) y[j] = 1 + n1;
+            else y[j] = -1 + n1;
+            if (j + 1 < N) {
+                if (x[j + 1] == 0) y[j + 1] = 1 + n2;
+                else y[j + 1] = -1 + n2;
+            }   
+        }
         // SC decoder
+        SCdecode(y);
         m += step_m;                   // increase m
         errBlock += 1;
     }
@@ -173,4 +192,59 @@ void normal()
     n1 = std * x1 * sqrt(-2 * log(s) / s);
     n2 = std * x2 * sqrt(-2 * log(s) / s);
     return;
+}
+
+// check node operation
+double CHK(double L1, double L2)
+{
+    int s1, s2;         // sign of L1, L2
+    double A1, A2;      // A1 = |L1|, A2 = |L2|
+    double delta;       // the complicated term
+    double sAbs, dAbs;  // |L1 + L2|, |L1 - L2|
+
+    sAbs = fabs(L1 + L2);
+    dAbs = fabs(L1 - L2);
+    if (sAbs < 0.196) delta = 0.65;
+    else if (sAbs < 0.433)  delta = 0.55;
+    else if (sAbs < 0.71)   delta = 0.45;
+    else if (sAbs < 1.05)   delta = 0.35;
+    else if (sAbs < 1.508)  delta = 0.25;
+    else if (sAbs < 2.252)  delta = 0.15;
+    else if (sAbs < 4.5)    delta = 0.05;
+    else delta = 0;
+    if (dAbs < 0.196) delta -= 0.65;
+    else if (dAbs < 0.433)  delta -= 0.55;
+    else if (dAbs < 0.71)   delta -= 0.45;
+    else if (dAbs < 1.05)   delta -= 0.35;
+    else if (dAbs < 1.508)  delta -= 0.25;
+    else if (dAbs < 2.252)  delta -= 0.15;
+    else if (dAbs < 4.5)    delta -= 0.05;
+    A1 = fabs(L1);
+    A2 = fabs(L2);
+    s1 = (L1 >= 0)? 1: -1;
+    s2 = (L2 >= 0)? 1: -1;
+    if (A1 > A2)
+        return s1 * s2 * A2 + delta;
+    return s1 * s2 * A1 + delta;
+}
+
+// LLR-based successive cancellation decoder
+int SCdecode(double *y)
+{
+    int i, j;                   // looping indices
+
+    // init LLR; set Done to 0 (undone yet)
+    for (i = 0; i < n; i++) {
+        for (j = 0; j < N; j++) {
+            L[i][j] = 0;
+            Done[i][j] = 0;
+        }
+    }
+    // compute channel LLR
+    for (j = 0; j < N; j++) {
+        L[n][j] = 2 * y[j] / std / std;;
+        Done[n][j] = 1;
+    }
+
+    return 0;
 }
