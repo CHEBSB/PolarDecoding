@@ -6,7 +6,7 @@ for polar code with N = 128 and rate = 0.5
 #include <stdlib.h>
 #include <math.h>
 
-#define bSNR_dB 3.046          // Eb/N0 in dB
+#define bSNR_dB 1.0          // Eb/N0 in dB
 #define N 128
 #define K 64
 #define n 7
@@ -40,10 +40,14 @@ int Done[n + 1][N];
 double Ranq1();            
 // generate 2 normal random number given standard deviation
 void normal();
+// 2 to the power of the given exponent
+int pow2(int expo);
 // check node operation
 double CHK(double L1, double L2);
+// compute L[stage][ind]
+void getLLR(int stage, int ind);
 // successive cancellation decoder
-int SCdecode(double *y);
+int SCdecode(double *y, int *u_hat, int *I);
 
 int main(void)
 {
@@ -65,6 +69,7 @@ int main(void)
     int v[N];                   // after bit reversal
     int x[N];                   // polar codeword
     double y[N];                // codeword + Gaussian noise
+    int u_hat[N];               // decoder's output
 
     // generate a cycle of PN sequence
     for (i = 0; i < 63; i++) {
@@ -114,10 +119,11 @@ int main(void)
         }
     }
     printf("Fn init completed.\n");     // for debug
-    // init both u and v as all-0
+    // init u, v, and u_hat as all-0
     for (i = 0; i < N; i++) {
         u[i] = 0;
         v[i] = 0;
+        u_hat[i] = 0;
     }
     // run simulation until desired error blocks
     for (i = 0; errBlock < 50; i++) {
@@ -153,10 +159,19 @@ int main(void)
             }   
         }
         // SC decoder
-        SCdecode(y);
+        SCdecode(y, u_hat, I);
+        // check info bits for block error
+        temp = 0;           // flag for loop
+        for (j = 0; j < K && temp == 0; j++) {
+            if (u[I[j]] != u_hat[I[j]])
+                temp = 1;
+        }
+        errBlock += temp;
         m += step_m;                   // increase m
-        errBlock += 1;
     }
+    // final output
+    printf("bSNR = %lf\tBLER = %lf * 10^-3\n",
+        bSNR_dB, ((double)50) / i * 1000);
     return 0;
 }
 
@@ -194,6 +209,20 @@ void normal()
     return;
 }
 
+// 2 to the power of the given (positive) exponent
+int pow2(int expo)
+{
+    int result = 1;         // the result to return
+
+    if (expo < 0)
+        printf("Positive exponent required!\n");
+    while (expo > 0) {
+        result = result * 2;
+        expo -= 1;
+    }
+    return result;
+}
+
 // check node operation
 double CHK(double L1, double L2)
 {
@@ -228,8 +257,31 @@ double CHK(double L1, double L2)
     return s1 * s2 * A1 + delta;
 }
 
+// compute L[s][ind] and L[s][ind + 1]
+void getLLR(int s, int ind)
+{
+    if (Done[s][ind] == 1)      // already computed
+        return;
+    if (ind % 2 == 1)           // for debug
+        printf("Wow!\n");
+    // for the upperleft bit
+    getLLR(s + 1, ind - ((ind / 2) % pow2(n - s - 1)));
+    getLLR(s + 1, ind - ((ind / 2) % pow2(n - s - 1)) + pow2(n - s - 1));
+    L[s][ind] = CHK(L[s + 1][ind - ((ind / 2) % pow2(n - s - 1))],
+        L[s + 1][ind - ((ind / 2) % pow2(n - s - 1)) + pow2(n - s - 1)]);
+    // for the lowerleft bit
+    L[s][ind + 1] = L[s + 1][ind - ((ind / 2) % pow2(n - s - 1)) + pow2(n - s - 1)];
+    if (L[s][ind] >= 0)         // the upper bit = 0
+        L[s][ind + 1] += L[s + 1][ind - ((ind / 2) % pow2(n - s - 1))];
+    else                            // the upper bit = 1
+        L[s][ind + 1] -= L[s + 1][ind - ((ind / 2) % pow2(n - s - 1))];
+    Done[s][ind] = 1;           // mark upperleft node as "done"
+    Done[s][ind + 1] = 1;       // mark lowerleft node
+    return;
+}
+
 // LLR-based successive cancellation decoder
-int SCdecode(double *y)
+int SCdecode(double *y, int *u_hat, int *I)
 {
     int i, j;                   // looping indices
 
@@ -245,6 +297,16 @@ int SCdecode(double *y)
         L[n][j] = 2 * y[j] / std / std;;
         Done[n][j] = 1;
     }
-
+    // decode each bit successively
+    for (j = 0; j < N; j += 2) {
+        getLLR(0, j);
+    }
+    // decide information bits accordingly
+    for (i = 0; i < K; i++) {
+        if (L[0][I[i]] >= 0)
+            u_hat[I[i]] = 0;
+        else
+            u_hat[I[i]] = 1;
+    }
     return 0;
 }
