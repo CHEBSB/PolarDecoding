@@ -291,7 +291,6 @@ double CHK(double L1, double L2)
     A2 = fabs(L2);
     s1 = (L1 >= 0)? 1: -1;
     s2 = (L2 >= 0)? 1: -1;
-    delta = 0;      // for debug
     if (A1 > A2)
         return s1 * s2 * A2 + delta;
     return s1 * s2 * A1 + delta;
