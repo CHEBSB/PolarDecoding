@@ -19,7 +19,7 @@ unsigned long long RANV;
 int RANI = 0;
 double n1, n2;              // gaussian noise
 // standard deviation of Gaussian noise
-const double std = pow(10, bSNR_dB / ((double)-20)); 
+double std; 
 // 5G polar sequence (Q[0] is most unreliable)
 const int Q[N] = {
 0, 1, 2, 4, 8, 16, 32, 3, 5, 64, 9, 6, 17, 10, 18, 12, 33,
@@ -37,6 +37,11 @@ int **Fn;
 double L[n + 1][N];
 // whether LLR of a node has been computed
 int Done[n + 1][N];
+// bit values determined after message propagation
+int V[n + 1][N];
+int bDone[n + 1][N];
+// x from decoder output
+int x_hat[N];
 
 // generate a uniform random number
 double Ranq1();            
@@ -49,14 +54,15 @@ double CHK(double L1, double L2);
 // compute LLR for BCB with upperleft at L[s][i]
 void getLLR(int s, int i);
 // successive cancellation decoder
-int SCdecode(double *y, int *u_hat, int *I);
+void SCdecode(double *y, int *u_hat, int *I);
 
 int main(void)
 {
     int i, j, k;                // looping indices
+    int run;                    // sumulation index
     int m = 0;                  // index for PN sequence
     // stepsize of m after 1 iteration
-    int step_m = K % 63;                
+    const int step_m = K % 63;                
     // to generate PN sequence
     int U[] = {0, 0, 0, 0, 0, 0};   // previous bits
     int b;                      // current bit
@@ -64,10 +70,12 @@ int main(void)
     int I[K];                   // information set
     int errBlock = 0;           // number of block errors
     int temp;                   // temporary storage
-    int u[N];                   // info bits + frozen bits
+    int u[K];                   // info bits
+    // use u[K] and u[j] to replace u[N] and u[I[j]]
     int x[N];                   // polar codeword
     double y[N];                // codeword + Gaussian noise
     int u_hat[N];               // decoder's output
+    int errbit = 0;             // # of bit error
 
     // generate a cycle of PN sequence
     for (i = 0; i < 63; i++) {
@@ -86,7 +94,7 @@ int main(void)
     // determine the information set I
     for (i = 0; i < K; i++) {
         // pick most reliable channels
-        I[i] = Q[N - 1 - i];
+        I[i] = Q[N - K + i];
     }
     // read Fn from file
     Fn = (int **)calloc(N, sizeof(int *));
@@ -100,54 +108,70 @@ int main(void)
         }
     }
     printf("Fn init completed.\n");     // for debug
-    
+    std = pow(10, bSNR_dB / ((double)-20));
     // run simulation until desired error blocks
-    for (i = 0; errBlock < 50; i++) {
+    for (run = 0; errBlock < 50; run++) {
         // reset vectors to all-zero
-        for (j = 0; j < N; j++) {
-            u[j] = 0;
-            u_hat[j] = 0;
-            x[j] = 0;
+        for (i = 0; i < N; i++) {
+            u_hat[i] = 0;
+            x[i] = 0;
         }
         // Encoder
         /* use PN sequence to have K bits, and
         put them into information set in u */
-        for (j = 0; j < K; j++)
-            u[I[j]] = PN[(m + j) % 63];
+        for (i = 0; i < K; i++)
+            u[i] = PN[(m + i) % 63];
         // encode by Fn
-        for (j = 0; j < K; j++)
-            if (u[I[j]] == 1)
-                // add the I[j]-th row to x
-                for (k = 0; k < N; k++) {
+        for (i = 0; i < K; i++)
+            if (u[i] == 1)
+                // add the I[i]-th row to x
+                for (j = 0; j < N; j++) {
                     // modulo-2 addition
-                    x[k] += Fn[I[j]][k];
-                    if (x[k] > 1) x[k] -= 2;
+                    x[j] += Fn[I[i]][j];
+                    if (x[j] > 1) x[j] -= 2;
                 }
         // Channel
         // y = x + noise
-        for (j = 0; j < N; j += 2) {
+        for (i = 0; i < N; i += 2) {
             normal();           // generate Gaussian noise
-            if (x[j] == 0) y[j] = 1 + n1;
-            else y[j] = -1 + n1;
-            if (j + 1 < N) {
-                if (x[j + 1] == 0) y[j + 1] = 1 + n2;
-                else y[j + 1] = -1 + n2;
+            if (x[i] == 0) y[i] = 1 + n1;
+            else y[i] = -1 + n1;
+            if (i + 1 < N) {
+                if (x[i + 1] == 0) y[i + 1] = 1 + n2;
+                else y[i + 1] = -1 + n2;
             }   
         }
         // SC decoder
         SCdecode(y, u_hat, I);
         // check info bits for block error
         temp = 0;           // flag for loop
+        /*
         for (j = 0; j < K && temp == 0; j++) {
-            if (u[I[j]] != u_hat[I[j]]) 
+            if (u[j] != u_hat[I[j]]) 
                 temp = 1;
+        }
+        */
+       for (i = 0; i < K; i++) {
+            if (u[i] != u_hat[I[i]]) {
+                // temp = 1;
+                errbit += 1;
+            }
+        }
+        
+        // codeword error rate from x_hat
+        for (i = 0; i < N; i++) {
+            if (x[i] != x_hat[i]) {
+                temp = 1;
+            }
         }
         errBlock += temp;
         m += step_m;                   // increase m
+        if (m >= 63) m -= 63;
     }
     // final output
     printf("bSNR = %lf dB\tBLER = %lf * 10^-3\n",
-        bSNR_dB, ((double)50) / i * 1000);
+        bSNR_dB, ((double)50) / run * 1000);
+    printf("BER = %lf", ((double)errbit) / K / run);
     return 0;
 }
 
@@ -233,7 +257,7 @@ double CHK(double L1, double L2)
     return s1 * s2 * A1 + delta;
 }
 
-// compute L[s][i] and L[s][i + 2^(i - 1)]
+// compute L[s][i] and L[s][i + 2^s]
 void getLLR(int s, int i)
 {
     if (Done[s][i] == 1)      // already computed
@@ -253,33 +277,77 @@ void getLLR(int s, int i)
     return;
 }
 
-// LLR-based successive cancellation decoder
-int SCdecode(double *y, int *u_hat, int *I)
+// comput V[s][i] and V[s][i + 2^s]
+void getBit(int s, int i)
 {
-    int i, j;                   // looping indices
+    if (bDone[s][i] == 1)      // already computed
+        return;
+    // for the upperleft bit
+    getBit(s - 1, i);
+    getBit(s - 1, i + pow2(s - 1));
+    // upperright bit
+    V[s][i] = V[s - 1][i] + V[s - 1][i + pow2(s - 1)];
+    if (V[s][i] > 1) V[s][i] = 0;
+    // lowerright bit
+    V[s][i + pow2(s - 1)] =  V[s - 1][i + pow2(s - 1)];
+    bDone[s][i] = 1;           // mark upperleft node as "done"
+    bDone[s][i + pow2(s - 1)] = 1;       // mark lowerleft node
+    return;
+}
+
+// LLR-based successive cancellation decoder
+void SCdecode(double *y, int *u_hat, int *I)
+{
+    int i, s;                   // looping indices
 
     // init LLR; set Done to 0 (undone yet)
-    for (i = 0; i < n; i++) {
-        for (j = 0; j < N; j++) {
-            L[i][j] = 0;
-            Done[i][j] = 0;
-        }
+    for (s = 0; s < n; s++) 
+        for (i = 0; i < N; i++) 
+            Done[s][i] = 0;
+    // channel LLR
+    for (i = 0; i < N; i++) {
+        L[n][i] = 2 * y[i] / std / std;;
+        Done[n][i] = 1;
     }
-    // compute channel LLR
-    for (j = 0; j < N; j++) {
-        L[n][j] = 2 * y[j] / std / std;;
-        Done[n][j] = 1;
+    // init bDone
+     for (s = 1; s <= n; s++) 
+        for (i = 0; i < N; i++) 
+            bDone[s][i] = 0;
+    // handle the frozen bits
+    for (i = 0; i < N; i++) 
+        V[0][i] = 0;        // info bits set later
+    for (i = 0; i < N; i++) // already know frozen bit = 0
+        bDone[0][i] = 1;
+    for (i = 0; i < K; i++) // info bits unknown
+        bDone[0][I[i]] = 0;
+    // decode bit successively
+    for (i = 0; i < N; i += 1) {
+        getLLR(0, i);
+        bDone[0][i] = 1;
     }
-    // decode each bit successively
-    for (j = 0; j < N; j += 1) {
-        getLLR(0, j);
+    // decide info bits
+    for (i = 0; i < K; i++) {
+        if (L[0][I[i]] >= 0)
+            V[0][I[i]] = 0;
+        else
+            V[0][I[i]] = 1;
+    }
+    // propagate bit value
+    for (i = 0; i < N; i += 1) {
+        getBit(n, i);
     }
     // decide information bits accordingly
+    /*
     for (i = 0; i < K; i++) {
         if (L[0][I[i]] >= 0)
             u_hat[I[i]] = 0;
         else
             u_hat[I[i]] = 1;
     }
-    return 0;
+    */
+    for (i = 0; i < N; i++) {
+        u_hat[i] = V[0][i];
+        x_hat[i] = V[n][i];
+    }
+    return;
 }
