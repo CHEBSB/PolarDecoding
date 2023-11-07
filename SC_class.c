@@ -8,7 +8,7 @@ G = F^{\otimes n} (no bit reversal)
 #include <stdlib.h>
 #include <math.h>
 
-#define bSNR_dB 2.0          // Eb/N0 in dB
+double bSNR_dB;         // Eb/N0 in dB
 #define N 128
 #define K 64
 #define n 7
@@ -59,9 +59,6 @@ node ***V;
 int initV[n + 1][N];
 // x from decoder output
 int x_hat[N];
-// counting variables for debug
-int cnt1 = 0;
-int cnt2 = 0;
 
 // generate a uniform random number
 double Ranq1();            
@@ -164,6 +161,8 @@ int main(void)
     should keep 0 throughout simualtion) */
     for (i = 0; i < N; i++)
         u[i] = 0;
+for (bSNR_dB = 1.0; bSNR_dB <= 4; bSNR_dB += 0.5) {
+    errBlock = 0;
     std = pow(10, bSNR_dB / ((double)-20));
     // run simulation until desired error blocks
     for (run = 0; errBlock < 100; run++) {
@@ -215,17 +214,13 @@ int main(void)
         if (m >= 63) m -= 63;
     }
     // final output
-    
     printf("bSNR = %.2lf\terror block = %d\trun = %d\tBLER = %lf\n",
         bSNR_dB, errBlock, run, ((double)errBlock) / run);
     printf("Error bit = %d\tBER = %lf\n", errbit,
         ((double)errbit) / K / run);
+}
     // debug
     /*
-    for (i = 0; i < 90; i += 10)
-        printf("%lf\t%lf\t%lf\n", y[i], V[n][i]->l, V[0][i]->l);
-
-    printf("cnt1 = %d\tcnt2 = %d\n", cnt1, cnt2);
     printf("u\tuh\tI\n");
     for (i = 0; i < N; i++) {
         printf("%d\t%d\t", u[i], u_hat[i]);
@@ -313,7 +308,6 @@ double CHK(double L1, double L2)
     A2 = fabs(L2);
     s1 = (L1 >= 0)? 1: -1;
     s2 = (L2 >= 0)? 1: -1;
-    delta = 0;      // for debug
     if (A1 > A2)
         return s1 * s2 * A2 + delta;
     return s1 * s2 * A1 + delta;
@@ -358,13 +352,11 @@ void getLLR(node *v)
     if (v->leftP == 1)  
         v->l = CHK(v->cU->l, v->cL->l);
     else if (v->cU->pU->bDone == 1) {
-        cnt1++;     // for debug
         if (v->cU->pU->b == 0) 
             v->l = v->cL->l + v->cU->l;
         else
             v->l = v->cL->l - v->cU->l;
     } else {
-        cnt2++;     // for debug
         printf("Wrong propagation order!\n");
     }
     v->lDone = 1;
