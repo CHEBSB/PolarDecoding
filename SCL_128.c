@@ -82,7 +82,7 @@ void copyPath(int c, int k);
 // copy a factor graph without setting bDone and lDone
 void simpleCopy(int c, int k);
 // update Path metric for path k with bit value u
-void updatePM(int k, int u);
+double updatePM(int k, int j, int u);
 // successive cancellation list decoder
 void SCLdecode(double *y, int *u_hat);
 
@@ -432,11 +432,33 @@ void simpleCopy(int c, int k)
     return;
 }
 
-// update Path metric for path k with the new bit set to u
-void updatePM(int k, int u)
-{
-    
-    return;
+// updated Path metric for path k with the j-th bit := u
+double updatePM(int k, int j, int u)
+{   
+    double result = PM[k];  // the result to return
+    double absL = fabs(V[0][j]->l[k]);
+    double delta;           // the term ln(1 + e^-x)
+
+    if (absL < 0.196) delta = 0.65;
+    else if (absL < 0.433)  delta = 0.55;
+    else if (absL < 0.71)   delta = 0.45;
+    else if (absL < 1.05)   delta = 0.35;
+    else if (absL < 1.508)  delta = 0.25;
+    else if (absL < 2.252)  delta = 0.15;
+    else if (absL < 4.5)    delta = 0.05;
+    else delta = 0;
+    result += delta;
+    if (u == 0) {
+        if (V[0][j]->l[k] < 0)
+            // result += -(1 - 2 * u) * V[0][j]->l[k];
+            result += absL;
+    } else if (u == 1) {
+        if (V[0][j]->l[k] > 0)
+            result += absL;
+    } else {
+        printf("Illegal input u!\n");
+    }
+    return result;
 }
 
 // successive cancellation decoder
@@ -485,7 +507,8 @@ void SCLdecode(double *y, int *u_hat)
                 V[0][j]->b[k] = 0;      
                 V[0][j]->b[k + actL] = 1;
                 // update path metric
-                
+                PM[k] = updatePM(k, j, 0);
+                PM[k + actL] = updatePM(k, j, 1);
                 // propagate bit value
                 updateBit(V[0][j], k);
                 updateBit(V[0][j], k + actL);
