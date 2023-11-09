@@ -88,13 +88,13 @@ int main(void)
     int U[] = {0, 0, 0, 0, 0, 0};   // previous bits
     int b;                      // current bit
     int PN[63];                 // 1 period of PN sequence
-    int errBlock = 0;           // number of block errors
+    int errBlock;           // number of block errors
     int temp;                   // temporary storage
     int u[N];                   // encoder input
     int x[N];                   // polar codeword
     double y[N];                // codeword + Gaussian noise
     int u_hat[N];               // decoder's output
-    int errbit = 0;             // # of bit error
+    int errbit;             // # of bit error
 
     // allocate memory for V
     V = (node ***)calloc(n + 1, sizeof(node **));
@@ -163,6 +163,7 @@ int main(void)
         u[i] = 0;
 for (bSNR_dB = 1.0; bSNR_dB <= 4; bSNR_dB += 0.5) {
     errBlock = 0;
+    errbit = 0;
     std = pow(10, bSNR_dB / ((double)-20));
     // run simulation until desired error blocks
     for (run = 0; errBlock < 100; run++) {

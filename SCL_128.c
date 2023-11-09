@@ -13,8 +13,7 @@ double bSNR_dB;         // Eb/N0 in dB
 #define N 128
 #define K 64
 #define n 7             // n = log2(N)
-#define L 2             // list size
-#define lgL 1           // log2(L)
+#define L 4             // list size
 
 typedef struct node {
     double l[L];    // LLR for all branches
@@ -60,7 +59,7 @@ node ***V;
 // path metric array
 double *PM;
 double *PMcand;             // the 2L's PM candidates
-int *surviv;                // L's survivor out of 2L
+int surviv[L];              // L's survivor out of 2L
 // whether a node is init
 int initV[n + 1][N];
 // x from decoder output
@@ -105,18 +104,17 @@ int main(void)
     int U[] = {0, 0, 0, 0, 0, 0};   // previous bits
     int b;                      // current bit
     int PN[63];                 // 1 period of PN sequence
-    int errBlock = 0;           // number of block errors
+    int errBlock;               // number of block errors
     int temp;                   // temporary storage
     int u[N];                   // encoder input
     int x[N];                   // polar codeword
     double y[N];                // codeword + Gaussian noise
     int u_hat[N];               // decoder's output
-    int errbit = 0;             // # of bit error
+    int errbit;                 // # of bit error
 
     // allocate memory for PM
     PM = (double *)calloc(2 * L, sizeof(double));
     PMcand = (double *)calloc(2 * L, sizeof(double));
-    surviv = (int *)calloc(L, sizeof(int));
     // allocate memory for V
     V = (node ***)calloc(n + 1, sizeof(node **));
     for (i = 0; i <= n; i++) {
@@ -182,8 +180,9 @@ int main(void)
     should keep 0 throughout simualtion) */
     for (i = 0; i < N; i++)
         u[i] = 0;
-for (bSNR_dB = 1.0; bSNR_dB <= 4.0; bSNR_dB += 0.5) {
+for (bSNR_dB = 1.0; bSNR_dB <= 2.5; bSNR_dB += 0.5) {
     errBlock = 0;
+    errbit = 0;
     std = pow(10, bSNR_dB / ((double)-20));
     // run simulation until desired error blocks
     for (run = 0; errBlock < 50; run++) {
@@ -237,8 +236,8 @@ for (bSNR_dB = 1.0; bSNR_dB <= 4.0; bSNR_dB += 0.5) {
     // final output
     printf("L = %d\tbSNR = %.2lf\terror block = %d\trun = %d\tBLER = %lf * 10^-1\n",
         L, bSNR_dB, errBlock, run, ((double)errBlock) * 10 / run);
-    /*printf("Error bit = %d\tBER = %lf\n", errbit,
-        ((double)errbit) / K / run);*/
+    /* printf("Error bit = %d\tBER = %lf\n", errbit,
+        ((double)errbit) / K / run); */
 }
     // debug
     /*
@@ -424,7 +423,6 @@ void copyPath(int c, int k)
             V[i][j]->b[k] = V[i][j]->b[c];
             V[i][j]->bDone[k] = V[i][j]->bDone[c];
         }
-    PM[k] = PM[c];          // copy path metric
     return;
 }
 
@@ -517,7 +515,7 @@ int Partition(double *list, int low, int high)
 void SCLdecode(double *y, int *u_hat)
 {
     int i, j, k;                // looping indices
-    int actL = 1;               // number of active paths
+    int actL;                   // number of active paths
     double med;                 // (L + 1)-th smallest PM
     double min;                 // minimum path metric
     int min_k;                  // the index of min
@@ -550,6 +548,7 @@ void SCLdecode(double *y, int *u_hat)
         }
     // Decoding: LLR propagation: top-down computation
     // before the list is full
+    actL = 1;
     for (j = 0; j < N && actL < L; j++) {
         // each decoder compute LLR
         for (k = 0; k < actL; k++) 
@@ -589,6 +588,8 @@ void SCLdecode(double *y, int *u_hat)
             // sort PMcand from small to large
             QuickSort(PMcand, 0, 2 * L - 1);
             med = PMcand[L];
+            if (PMcand[L] == PMcand[L - 1])
+                printf("Oops!\n");      // for debug
             // we only want PMcand[0] to PMcand[L - 1]
             for (k = 0; k < L; k++) {
                 if (PM[k] < med && PM[k + L] < med)
@@ -602,6 +603,7 @@ void SCLdecode(double *y, int *u_hat)
             }
             /* put both-branch survivor to
             where none-branch survivor used to be */
+            i = 0;          // for unoccupied space search
             for (k = 0; k < L; k++) {
                 switch (surviv[k]) {
                 case 0:
@@ -614,8 +616,8 @@ void SCLdecode(double *y, int *u_hat)
                     PM[k] = PM[k + L];
                     break;
                 case 2:
-                    // find space unused
-                    for (i = 0; surviv[i] != -1; i++);
+                    // find space unoccupied
+                    for (; surviv[i] != -1; i++);
                     if (i >= L) printf("Error!\n");
                     simpleCopy(k, i);
                     V[0][j]->b[k] = 0;

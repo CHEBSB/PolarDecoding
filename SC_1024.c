@@ -1,6 +1,6 @@
 /*
 Simulation of successive cancellation (SC) decoder
-for polar code with N = 128 and rate = 0.5
+for polar code with N = 1024 and rate = 0.5
 Follow factor graph in Lee's thesis
 G = F^{\otimes n} (no bit reversal)
 */
@@ -8,15 +8,16 @@ G = F^{\otimes n} (no bit reversal)
 #include <stdlib.h>
 #include <math.h>
 
-double bSNR_dB;             // Eb/N0 in dB
-#define N 128
-#define K 64
-#define n 7
-#define iterMax 100
+double bSNR_dB;         // Eb/N0 in dB
+#define N 1024
+#define K 512
+#define n 10
 
 typedef struct node {
-    double l;       // left-propagating message (LLR)
-    double r;       // right-propagating message
+    double l;       // LLR
+    int b;          // bit value
+    int lDone;      // whether LLR is computed
+    int bDone;      // whether bit value decided
     /* Left & right position, i.e., when it appears at
     the left/right side of a BCB, is it the upper or
     the lower node.
@@ -39,15 +40,54 @@ double n1, n2;              // gaussian noise
 double std; 
 // 5G polar sequence (Q[0] is most unreliable)
 const int Q[N] = {
-0, 1, 2, 4, 8, 16, 32, 3, 5, 64, 9, 6, 17, 10, 18, 12, 33,
-65, 20, 34, 24, 36, 7, 66, 11, 40, 68, 19, 13, 48, 14, 72,
-21, 35, 26, 80, 37, 25, 22, 38, 96, 67, 41, 28, 69, 42, 49,
-74, 70, 44, 81, 50, 73, 15, 52, 23, 76, 82, 56, 27, 97, 39,
-84, 29, 43, 98, 88, 30, 71, 45, 100, 51, 46, 75, 104, 53,
-77, 54, 83, 57, 112, 78, 85, 58, 99, 86, 60, 89, 101, 31,
-90, 102, 105, 92, 47, 106, 55, 113, 79, 108, 59, 114, 87,
-116, 61, 91, 120, 62, 103, 93, 107, 94, 109, 115, 110, 117,
-118, 121, 122, 63, 124, 95, 111, 119, 123, 125, 126, 127};
+0,1,2,4,8,16,32,3,5,64,9,6,17,10,18,128,12,33,65,20,256,34,24,36,7,129,66,512,11,40,
+68,130,19,13,48,14,72,257,21,132,35,258,26,513,80,37,25,22,136,260,264,38,514,96,67,
+41,144,28,69,42,516,49,74,272,160,520,288,528,192,544,70,44,131,81,50,73,15,320,133,
+52,23,134,384,76,137,82,56,27,97,39,259,84,138,145,261,29,43,98,515,88,140,30,146,71,
+262,265,161,576,45,100,640,51,148,46,75,266,273,517,104,162,53,193,152,77,164,768,268,
+274,518,54,83,57,521,112,135,78,289,194,85,276,522,58,168,139,99,86,60,280,89,290,529,
+524,196,141,101,147,176,142,530,321,31,200,90,545,292,322,532,263,149,102,105,304,296,
+163,92,47,267,385,546,324,208,386,150,153,165,106,55,328,536,577,548,113,154,79,269,
+108,578,224,166,519,552,195,270,641,523,275,580,291,59,169,560,114,277,156,87,197,116,
+170,61,531,525,642,281,278,526,177,293,388,91,584,769,198,172,120,201,336,62,282,143,
+103,178,294,93,644,202,592,323,392,297,770,107,180,151,209,284,648,94,204,298,400,608,
+352,325,533,155,210,305,547,300,109,184,534,537,115,167,225,326,306,772,157,656,329,
+110,117,212,171,776,330,226,549,538,387,308,216,416,271,279,158,337,550,672,118,332,
+579,540,389,173,121,553,199,784,179,228,338,312,704,390,174,554,581,393,283,122,448,
+353,561,203,63,340,394,527,582,556,181,295,285,232,124,205,182,643,562,286,585,299,354,
+211,401,185,396,344,586,645,593,535,240,206,95,327,564,800,402,356,307,301,417,213,568,
+832,588,186,646,404,227,896,594,418,302,649,771,360,539,111,331,214,309,188,449,217,
+408,609,596,551,650,229,159,420,310,541,773,610,657,333,119,600,339,218,368,652,230,
+391,313,450,542,334,233,555,774,175,123,658,612,341,777,220,314,424,395,673,583,355,
+287,183,234,125,557,660,616,342,316,241,778,563,345,452,397,403,207,674,558,785,432,
+357,187,236,664,624,587,780,705,126,242,565,398,346,456,358,405,303,569,244,595,189,
+566,676,361,706,589,215,786,647,348,419,406,464,680,801,362,590,409,570,788,597,572,
+219,311,708,598,601,651,421,792,802,611,602,410,231,688,653,248,369,190,364,654,659,
+335,480,315,221,370,613,422,425,451,614,543,235,412,343,372,775,317,222,426,453,237,
+559,833,804,712,834,661,808,779,617,604,433,720,816,836,347,897,243,662,454,318,675,
+618,898,781,376,428,665,736,567,840,625,238,359,457,399,787,591,678,434,677,349,245,
+458,666,620,363,127,191,782,407,436,626,571,465,681,246,707,350,599,668,790,460,249,
+682,573,411,803,789,709,365,440,628,689,374,423,466,793,250,371,481,574,413,603,366,
+468,655,900,805,615,684,710,429,794,252,373,605,848,690,713,632,482,806,427,904,414,
+223,663,692,835,619,472,455,796,809,714,721,837,716,864,810,606,912,722,696,377,435,
+817,319,621,812,484,430,838,667,488,239,378,459,622,627,437,380,818,461,496,669,679,
+724,841,629,351,467,438,737,251,462,442,441,469,247,683,842,738,899,670,783,849,820,
+728,928,791,367,901,630,685,844,633,711,253,691,824,902,686,740,850,375,444,470,483,
+415,485,905,795,473,634,744,852,960,865,693,797,906,715,807,474,636,694,254,717,575,
+913,798,811,379,697,431,607,489,866,723,486,908,718,813,476,856,839,725,698,914,752,
+868,819,814,439,929,490,623,671,739,916,463,843,381,497,930,821,726,961,872,492,631,
+729,700,443,741,845,920,382,822,851,730,498,880,742,445,471,635,932,687,903,825,500,
+846,745,826,732,446,962,936,475,853,867,637,907,487,695,746,828,753,854,857,504,799,
+255,964,909,719,477,915,638,748,944,869,491,699,754,858,478,968,383,910,815,976,870,
+917,727,493,873,701,931,756,860,499,731,823,922,874,918,502,933,743,760,881,494,702,
+921,501,876,847,992,447,733,827,934,882,937,963,747,505,855,924,734,829,965,938,884,
+506,749,945,966,755,859,940,830,911,871,639,888,479,946,750,969,508,861,757,970,919,
+875,862,758,948,977,923,972,761,877,952,495,703,935,978,883,762,503,925,878,735,993,
+885,939,994,980,926,764,941,967,886,831,947,507,889,984,751,942,996,971,890,509,949,
+973,1000,892,950,863,759,1008,510,979,953,763,974,954,879,981,982,927,995,765,956,887,
+985,997,986,943,891,998,766,511,988,1001,951,1002,893,975,894,1009,955,1004,1010,957,
+983,958,987,1012,999,1016,767,989,1003,990,1005,959,1011,1013,895,1006,1014,1017,1018,
+991,1020,1007,1015,1019,1021,1022,1023};
 int I[K];                   // information set
 int inI[N];                 // whether a bit is in I
 // n-kronecker product of F
@@ -69,8 +109,12 @@ int pow2(int expo);
 double CHK(double L1, double L2);
 // connect the factor graph
 void connectBCB(int i, int j);
-// iterative BP decoder
-void BP(double *y, int *u_hat);
+// recursively compute LLR
+void getLLR(node *v);
+// after v is decoded, update other nodes
+void updateBit(node *v);
+// successive cancellation decoder
+void SCdecode(double *y, int *u_hat);
 
 int main(void)
 {
@@ -83,13 +127,13 @@ int main(void)
     int U[] = {0, 0, 0, 0, 0, 0};   // previous bits
     int b;                      // current bit
     int PN[63];                 // 1 period of PN sequence
-    int errBlock;               // number of block errors
+    int errBlock;           // number of block errors
     int temp;                   // temporary storage
     int u[N];                   // encoder input
     int x[N];                   // polar codeword
     double y[N];                // codeword + Gaussian noise
     int u_hat[N];               // decoder's output
-    int errbit;                 // # of bit error
+    int errbit;             // # of bit error
 
     // allocate memory for V
     V = (node ***)calloc(n + 1, sizeof(node **));
@@ -156,18 +200,20 @@ int main(void)
     should keep 0 throughout simualtion) */
     for (i = 0; i < N; i++)
         u[i] = 0;
-for (bSNR_dB = 1.0; bSNR_dB <= 4; bSNR_dB += 0.5) {
+for (bSNR_dB = 1.0; bSNR_dB <= 3.5; bSNR_dB += 0.5) {
     errBlock = 0;
     errbit = 0;
     std = pow(10, bSNR_dB / ((double)-20));
     // run simulation until desired error blocks
-    for (run = 0; errBlock < 100; run++) {
+    for (run = 0; errBlock < 50; run++) {
         // reset vectors to all-zero
         for (i = 0; i < N; i++) {
             u_hat[i] = 0;
             x[i] = 0;
         }
         // Encoder
+        /* use PN sequence to have K bits, and
+        put them into information set in u */
         // use all-zero as the first step
         for (i = 0; i < K; i++) {
             u[I[i]] = PN[(m + i) % 63];
@@ -193,11 +239,11 @@ for (bSNR_dB = 1.0; bSNR_dB <= 4; bSNR_dB += 0.5) {
                 else y[i + 1] = -1 + n2;
             }   
         }
-        // run the BP decoder
-        BP(y, u_hat);
+        // SC decoder
+        SCdecode(y, u_hat);
         // check info bits for block error
         temp = 0;           // flag for loop
-        for (i = 0; i < K; i++) {
+       for (i = 0; i < K; i++) {
             if (u[I[i]] != u_hat[I[i]]) {
                 temp = 1;
                 errbit += 1;
@@ -208,10 +254,20 @@ for (bSNR_dB = 1.0; bSNR_dB <= 4; bSNR_dB += 0.5) {
         if (m >= 63) m -= 63;
     }
     // final output
-    printf("bSNR = %.2lf\terror block = %d\trun = %d\t",
-        bSNR_dB, errBlock, run);
-    printf("BLER = %lf\n", ((double)errBlock) / run);
+    printf("bSNR = %.2lf\terror block = %d\trun = %d\tBLER = %lf\n",
+        bSNR_dB, errBlock, run, ((double)errBlock) / run);
+    printf("Error bit = %d\tBER = %lf\n", errbit,
+        ((double)errbit) / K / run);
 }
+    // debug
+    /*
+    printf("u\tuh\tI\n");
+    for (i = 0; i < N; i++) {
+        printf("%d\t%d\t", u[i], u_hat[i]);
+        if (inI[i] == 1) printf("1");
+        printf("\n");
+    }
+    */
     return 0;
 }
 
@@ -324,60 +380,120 @@ void connectBCB(int i, int j)
     return;
 }
 
-// conventional BP decoder for polat codes
-void BP(double *y, int *u_hat)
+// recursively compute LLR
+void getLLR(node *v)
+{
+    if (v->lDone == 1) {
+        return;
+    }
+    getLLR(v->cU);
+    getLLR(v->cL);
+    // if it is upperleft bit
+    if (v->leftP == 1)  
+        v->l = CHK(v->cU->l, v->cL->l);
+    else if (v->cU->pU->bDone == 1) {
+        if (v->cU->pU->b == 0) 
+            v->l = v->cL->l + v->cU->l;
+        else
+            v->l = v->cL->l - v->cU->l;
+    } else {
+        printf("Wrong propagation order!\n");
+    }
+    v->lDone = 1;
+    return;
+}
+
+// Call to set bDone to 1. Update descendants
+void updateBit(node *v)
+{
+    if (v->bDone == 1) return;
+    v->bDone = 1;
+    if (v->cU == NULL || v->cL == NULL)
+        return;     // return when we reach the rightmost
+    // if it is upperleft bit
+    if (v->leftP == 1) {
+        // check if the lowerleft bit is done
+        if (v->cU->pL->bDone == 1) {
+            v->cU->b = (v->b + v->cU->pL->b) % 2;
+            updateBit(v->cU);
+        }
+    } else {        // if it is the lowerleft bit
+        // check the upperleft node
+        if (v->cU->pU->bDone == 1) {
+            v->cU->b = (v->b + v->cU->pU->b) % 2;
+            updateBit(v->cU);
+        }
+        // update the lowerright bit
+        v->cL->b = v->b;
+        updateBit(v->cL);
+    }
+    return;
+}
+
+// successive cancellation decoder
+void SCdecode(double *y, int *u_hat)
 {
     int i, j;       // looping indices
-    int iter;       // iteration index
-    // initialize
-    // left-propagating message
-    for (i = 0; i < n; i++) 
-        for (j = 0; j < N; j++)
-            V[i][j]->l = 0; 
-    for (j = 0; j < N; j++)
-        V[n][j]->l = 2 * y[j] / std / std;
-    // right-propagating message
-    for (i = 1; i <= n; i++) 
-        for (j = 0; j < N; j++)
-            V[i][j]->r = 0; 
-    for (j = 0; j < N; j++) {
-        if (inI[j] == 0)        // frozen bit => infinity
-            V[0][j]->r = 999;
-        else                    // info bit => 0
-            V[0][j]->r = 0;   
-    }
-    for (iter = 0; iter < iterMax; iter++) {
-        // R propag
-        for (i = 0; i < n; i++) 
-            for (j = 0; j < N; j++) {
-                // only start from upperleft
-                if (V[i][j]->leftP == 1) {
-                    (V[i][j]->cU)->r = CHK(V[i][j]->r,
-                        (V[i][j]->cL)->l + (V[i][j + pow2(i)])->r);
-                    (V[i][j]->cL)->r = (V[i][j + pow2(i)])->r
-                        + CHK(V[i][j]->r, (V[i][j]->cU)->l);
-                }
-            }
-        // L propag
-        for (i = n - 1; i >= 0; i--) 
-            for (j = 0; j < N; j++) {
-                // only start from upperleft
-                if (V[i][j]->leftP == 1) {
-                    V[i][j]->l = CHK((V[i][j]->cU)->l,
-                        (V[i][j]->cL)->l + (V[i][j + pow2(i)])->r);
-                    V[i][j + pow2(i)]->l = (V[i][j]->cL)->l
-                        + CHK(V[i][j]->r, (V[i][j]->cU)->l);
-                }
-            }
-    }
+
+    // init bDone
+    for (i = 0; i <= n; i++)
+        for (j = 0; j < N; j++) {
+            V[i][j]->bDone = 0; // undone yet
+        }
     for (j = 0; j < N; j++) {
         if (inI[j] == 0) {      // frozen bit
-            u_hat[j] = 0;
-        } else if (V[0][j]->l + V[0][j]->r >= 0) {
-            u_hat[j] = 0;
-        } else {
-            u_hat[j] = 1;
+            V[0][j]->b = 0;
+            updateBit(V[0][j]); 
+        } else
+            V[0][j]->bDone = 0;
+    }
+    // init lDone
+    for (i = 0; i < n; i++)
+        for (j = 0; j < N; j++) {
+            V[i][j]->lDone = 0; // undone yet
         }
+    // channel LLR
+    for (j = 0; j < N; j++) {
+        V[n][j]->l = 2 * y[j] / std / std;
+        V[n][j]->lDone = 1;
+    }
+    // Decoding part: LLR propagation
+    
+    // top-down computation
+    for (j = 0; j < N; j++) {
+        getLLR(V[0][j]);
+        if (inI[j] == 1) {  // if is info bit
+            if (V[0][j]->l >= 0)
+                V[0][j]->b = 0;
+            else
+                V[0][j]->b = 1;
+            updateBit(V[0][j]);
+        }
+    }
+    // bottom-up computation
+    /*
+    for (i = n - 1; i >= 0; i--) {
+        for (j = 0; j < N; j++) {
+            if (V[i][j]->leftP == 1) {
+                V[i][j]->l = CHK(V[i][j]->cU->l, V[i][j]->cL->l);
+            } else {
+                if (V[i][j - pow2(i)]->l >= 0) 
+                    V[i][j]->l = V[i][j]->cL->l + V[i][j]->cU->l;
+                else
+                    V[i][j]->l = V[i][j]->cL->l - V[i][j]->cU->l;
+            }
+            V[i][j]->bDone = 1;     // mark bDone
+        }
+    }
+    for (j = 0; j < N; j++) {
+        if (inI[j] == 1 && V[0][j]->l < 0)
+            V[0][j]->b = 1;
+        else
+            V[0][j]->b = 0;
+    }*/
+    // decoder output
+    for (j = 0; j < N; j++) {
+        u_hat[j] = V[0][j]->b;
     }
     return;
 }
