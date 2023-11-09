@@ -11,8 +11,9 @@ G = F^{\otimes n} (no bit reversal)
 double bSNR_dB;         // Eb/N0 in dB
 #define N 128
 #define K 64
-#define n 7
-#define L 2
+#define n 7             // n = log2(N)
+#define L 2             // list size
+#define lgL 1           // log2(L)
 
 typedef struct node {
     double l[L];    // LLR for all branches
@@ -22,8 +23,7 @@ typedef struct node {
     /* Left & right position, i.e., when it appears at
     the left/right side of a BCB, is it the upper or
     the lower node.
-    1 for upper, 0 for lower
-    */
+    1 for upper, 0 for lower */
     int leftP;
     int rightP;
     struct node *pU;        // upper parent
@@ -56,6 +56,8 @@ int inI[N];                 // whether a bit is in I
 int **Fn; 
 // all nodes on factor graph
 node ***V;
+// path metric array
+double *PM;
 // whether a node is init
 int initV[n + 1][N];
 // x from decoder output
@@ -79,6 +81,8 @@ void updateBit(node *v, int k);
 void copyPath(int c, int k);
 // copy a factor graph without setting bDone and lDone
 void simpleCopy(int c, int k);
+// update Path metric for path k with bit value u
+void updatePM(int k, int u);
 // successive cancellation list decoder
 void SCLdecode(double *y, int *u_hat);
 
@@ -101,6 +105,8 @@ int main(void)
     int u_hat[N];               // decoder's output
     int errbit = 0;             // # of bit error
 
+    // allocate memory for PN
+    PM = (double *)calloc(2 * L, sizeof(double));
     // allocate memory for V
     V = (node ***)calloc(n + 1, sizeof(node **));
     for (i = 0; i <= n; i++) {
@@ -398,12 +404,38 @@ void updateBit(node *v, int k)
 // copy a factor graph from path c to path k
 void copyPath(int c, int k)
 {
+    int i, j;           // looping indices
+
+    // don't need to copy the rightmost stage
+    for (i = 0; i < n; i++)
+        for (j = 0; j < N; j++) {
+            V[i][j]->l[k] = V[i][j]->l[c];
+            V[i][j]->lDone[k] = V[i][j]->lDone[c];
+            V[i][j]->b[k] = V[i][j]->b[c];
+            V[i][j]->bDone[k] = V[i][j]->bDone[c];
+        }
+    PM[k] = PM[c];          // copy path metric
     return;
 }
 
 // copy a factor graph without setting bDone and lDone
 void simpleCopy(int c, int k)
 {
+    int i, j;           // looping indices
+
+    // don't need to copy the rightmost stage
+    for (i = 0; i < n; i++)
+        for (j = 0; j < N; j++) {
+            V[i][j]->l[k] = V[i][j]->l[c];
+            V[i][j]->b[k] = V[i][j]->b[c];
+        }
+    return;
+}
+
+// update Path metric for path k with the new bit set to u
+void updatePM(int k, int u)
+{
+    
     return;
 }
 
@@ -411,8 +443,10 @@ void simpleCopy(int c, int k)
 void SCLdecode(double *y, int *u_hat)
 {
     int i, j, k;                // looping indices
-    int activeL = 1;            // number of active paths
+    int actL = 1;               // number of active paths
 
+    // init path metrics
+    PM[0] = 0;
     // init bDone
     for (i = 0; i <= n; i++)
         for (j = 0; j < N; j++)
@@ -437,10 +471,29 @@ void SCLdecode(double *y, int *u_hat)
             V[n][j]->l[k] = 2 * y[j] / std / std;
             V[n][j]->lDone[k] = 1;
         }
-    // Decoding part: LLR propagation
-    
-    // top-down computation
-    for (j = 0; j < N; j++) {
+    // Decoding: LLR propagation: top-down computation
+    // before the list is full
+    for (j = 0; j < N && actL <= (L / 2); j++) {
+        // each decoder compute LLR
+        for (k = 0; k < actL; k++) 
+            getLLR(V[0][j], k);
+        if (inI[j] == 1) {              // if is info bit
+            for (k = 0; k < actL; k++)
+                copyPath(k, k + actL);  // copy path
+            for (k = 0; k < actL; k++) {
+                // branch 0 and 1
+                V[0][j]->b[k] = 0;      
+                V[0][j]->b[k + actL] = 1;
+                // update path metric
+                
+                // propagate bit value
+                updateBit(V[0][j], k);
+                updateBit(V[0][j], k + actL);
+            }
+            actL = actL * 2;    // double the # of paths
+        }
+    }
+    for (; j < N; j++) {
         getLLR(V[0][j]);
         if (inI[j] == 1) {  // if is info bit
             if (V[0][j]->l >= 0)
@@ -450,30 +503,11 @@ void SCLdecode(double *y, int *u_hat)
             updateBit(V[0][j]);
         }
     }
-    // bottom-up computation
-    /*
-    for (i = n - 1; i >= 0; i--) {
-        for (j = 0; j < N; j++) {
-            if (V[i][j]->leftP == 1) {
-                V[i][j]->l = CHK(V[i][j]->cU->l, V[i][j]->cL->l);
-            } else {
-                if (V[i][j - pow2(i)]->l >= 0) 
-                    V[i][j]->l = V[i][j]->cL->l + V[i][j]->cU->l;
-                else
-                    V[i][j]->l = V[i][j]->cL->l - V[i][j]->cU->l;
-            }
-            V[i][j]->bDone = 1;     // mark bDone
-        }
-    }
-    for (j = 0; j < N; j++) {
-        if (inI[j] == 1 && V[0][j]->l < 0)
-            V[0][j]->b = 1;
-        else
-            V[0][j]->b = 0;
-    }*/
+
+
     // decoder output
     for (j = 0; j < N; j++) {
-        u_hat[j] = V[0][j]->b;
+        // u_hat[j] = V[0][j]->b;
     }
     return;
 }
