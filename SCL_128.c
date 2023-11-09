@@ -1,6 +1,7 @@
 /*
 Simulation of successive cancellation list (SCL) decoder
 for polar code with N = 128 and rate = 0.5
+Assume list size L = power of 2
 Follow factor graph in Lee's thesis
 G = F^{\otimes n} (no bit reversal)
 */
@@ -58,6 +59,8 @@ int **Fn;
 node ***V;
 // path metric array
 double *PM;
+double *PMcand;             // the 2L's PM candidates
+int *surviv;                // L's survivor out of 2L
 // whether a node is init
 int initV[n + 1][N];
 // x from decoder output
@@ -79,10 +82,15 @@ void getLLR(node *v, int k);
 void updateBit(node *v, int k);
 // copy a factor graph from path c to path k
 void copyPath(int c, int k);
-// copy a factor graph without setting bDone and lDone
+// copy factor graph from c to k w/out bDone or lDone 
 void simpleCopy(int c, int k);
 // update Path metric for path k with bit value u
 double updatePM(int k, int j, int u);
+// Quick sort: from small to large
+void QuickSort(double *list, int low, int high);
+// for quick sort: put the 1st element in place
+// return the position of the element
+int Partition(double *list, int low, int high);
 // successive cancellation list decoder
 void SCLdecode(double *y, int *u_hat);
 
@@ -105,8 +113,10 @@ int main(void)
     int u_hat[N];               // decoder's output
     int errbit = 0;             // # of bit error
 
-    // allocate memory for PN
+    // allocate memory for PM
     PM = (double *)calloc(2 * L, sizeof(double));
+    PMcand = (double *)calloc(2 * L, sizeof(double));
+    surviv = (int *)calloc(L, sizeof(int));
     // allocate memory for V
     V = (node ***)calloc(n + 1, sizeof(node **));
     for (i = 0; i <= n; i++) {
@@ -176,7 +186,7 @@ for (bSNR_dB = 1.5; bSNR_dB <= 1.5; bSNR_dB += 0.5) {
     errBlock = 0;
     std = pow(10, bSNR_dB / ((double)-20));
     // run simulation until desired error blocks
-    for (run = 0; errBlock < 100; run++) {
+    for (run = 0; errBlock < 50; run++) {
         // reset vectors to all-zero
         for (i = 0; i < N; i++) {
             u_hat[i] = 0;
@@ -418,7 +428,7 @@ void copyPath(int c, int k)
     return;
 }
 
-// copy a factor graph without setting bDone and lDone
+// copy factor graph from c to k w/out bDone or lDone
 void simpleCopy(int c, int k)
 {
     int i, j;           // looping indices
@@ -461,11 +471,56 @@ double updatePM(int k, int j, int u)
     return result;
 }
 
+// quick sort
+void QuickSort(double *list, int low, int high)
+{
+	int mid;
+
+	if (low < high) {
+		// put the first element in place and let mid be that index 
+		mid = Partition(list, low, high);	
+		QuickSort(list, low, mid - 1);		// sort LHS of mid
+		QuickSort(list, mid + 1, high);		// sort RHS of mid
+	}
+}
+// for quick sort: put the 1st element in place
+// return the position of the element
+int Partition(double *list, int low, int high)
+{
+	int i, j;			// looping indices
+	double temp, v;	    // temp storage; the first element
+
+	v = list[low];		// the first element
+	i = low + 1;		// from left hand side
+	j = high;			// from right hand side
+	do {
+		while (list[i] < v && i < high) 
+		// until we find a list[i] > v
+			i += 1;
+		while (list[j] > v) 
+		// until we find a list[j] < v
+			j -= 1;	
+		// list[j] < v < list[i] 
+		if (i < j) {		// swap
+			temp = list[i];
+			list[i] = list[j];
+			list[j] = temp;
+		}
+	} while (i < j);
+	// move v to the correct position
+	list[low] = list[j];
+	list[j] = v;		
+	return j;
+}
+
 // successive cancellation decoder
 void SCLdecode(double *y, int *u_hat)
 {
     int i, j, k;                // looping indices
     int actL = 1;               // number of active paths
+    double med;                 // (L + 1)-th smallest PM
+    double min;                 // minimum path metric
+    int min_k;                  // the index of min
 
     // init path metrics
     PM[0] = 0;
@@ -495,7 +550,7 @@ void SCLdecode(double *y, int *u_hat)
         }
     // Decoding: LLR propagation: top-down computation
     // before the list is full
-    for (j = 0; j < N && actL <= (L / 2); j++) {
+    for (j = 0; j < N && actL < L; j++) {
         // each decoder compute LLR
         for (k = 0; k < actL; k++) 
             getLLR(V[0][j], k);
@@ -514,23 +569,79 @@ void SCLdecode(double *y, int *u_hat)
                 updateBit(V[0][j], k + actL);
             }
             actL = actL * 2;    // double the # of paths
+        } else {                // only need to update PM
+            for (k = 0; k < actL; k++)
+                PM[k] = updatePM(k, j, 0);
         }
     }
     for (; j < N; j++) {
-        getLLR(V[0][j]);
-        if (inI[j] == 1) {  // if is info bit
-            if (V[0][j]->l >= 0)
-                V[0][j]->b = 0;
-            else
-                V[0][j]->b = 1;
-            updateBit(V[0][j]);
+        // each decoder compute LLR
+        for (k = 0; k < L; k++) 
+            getLLR(V[0][j], k);
+        if (inI[j] == 1) {              // if is info bit
+            // compute all possible path metrics
+            for (k = 0; k < L; k++) {
+                PMcand[k] = updatePM(k, j, 0);
+                PMcand[k + L] = updatePM(k, j, 1);
+                PM[k] = PMcand[k];
+                PM[k + L] = PMcand[k + L];
+            }
+            // sort PMcand from small to large
+            QuickSort(PMcand, 0, 2 * L - 1);
+            med = PMcand[L];
+            // we only want PMcand[0] to PMcand[L - 1]
+            for (k = 0; k < L; k++) {
+                if (PM[k] < med && PM[k + L] < med)
+                    surviv[k] = 2;  // both branches survive
+                else if (PM[k] >= med && PM[k + L] < med)
+                    surviv[k] = 1;  // only branch1 survive
+                else if (PM[k] < med && PM[k + L] >= med)
+                    surviv[k] = 0;  // only branch0 survive
+                else 
+                    surviv[k] = -1; // neither survive
+            }
+            /* put both-branch survivor to
+            where none-branch survivor used to be */
+            for (k = 0; k < L; k++) {
+                switch (surviv[k]) {
+                case 0:
+                    V[0][j]->b[k] = 0;
+                    updateBit(V[0][j], k);
+                    break;
+                case 1:
+                    V[0][j]->b[k] = 1;
+                    updateBit(V[0][j], k);
+                    PM[k] = PM[k + L];
+                    break;
+                case 2:
+                    // find space unused
+                    for (i = 0; surviv[i] != -1; i++);
+                    if (i >= L) printf("Error!\n");
+                    simpleCopy(k, i);
+                    V[0][j]->b[k] = 0;
+                    updateBit(V[0][j], k);
+                    V[0][j]->b[i] = 1;
+                    updateBit(V[0][j], i);
+                    surviv[i] = -2;     // mark as copied
+                    PM[i] = PM[k + L];
+                }
+            }
+        } else {    // frozen bit => only need to update PM
+            for (k = 0; k < L; k++)
+                PM[k] = updatePM(k, j, 0);
         }
     }
-
-
+    // Decoder terminate: find the path with smallest PM
+    min = PM[0];
+    min_k = 0;
+    for (k = 1; k < L; k++)
+        if (PM[k] < min) {
+            min = PM[k];
+            min_k = k;
+        }
     // decoder output
     for (j = 0; j < N; j++) {
-        // u_hat[j] = V[0][j]->b;
+        u_hat[j] = V[0][j]->b[min_k];
     }
     return;
 }
