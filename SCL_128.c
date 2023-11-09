@@ -182,7 +182,7 @@ int main(void)
     should keep 0 throughout simualtion) */
     for (i = 0; i < N; i++)
         u[i] = 0;
-for (bSNR_dB = 1.5; bSNR_dB <= 1.5; bSNR_dB += 0.5) {
+for (bSNR_dB = 1.0; bSNR_dB <= 4.0; bSNR_dB += 0.5) {
     errBlock = 0;
     std = pow(10, bSNR_dB / ((double)-20));
     // run simulation until desired error blocks
@@ -235,10 +235,10 @@ for (bSNR_dB = 1.5; bSNR_dB <= 1.5; bSNR_dB += 0.5) {
         if (m >= 63) m -= 63;
     }
     // final output
-    printf("bSNR = %.2lf\terror block = %d\trun = %d\tBLER = %lf\n",
-        bSNR_dB, errBlock, run, ((double)errBlock) / run);
-    printf("Error bit = %d\tBER = %lf\n", errbit,
-        ((double)errbit) / K / run);
+    printf("L = %d\tbSNR = %.2lf\terror block = %d\trun = %d\tBLER = %lf * 10^-1\n",
+        L, bSNR_dB, errBlock, run, ((double)errBlock) * 10 / run);
+    /*printf("Error bit = %d\tBER = %lf\n", errbit,
+        ((double)errbit) / K / run);*/
 }
     // debug
     /*
