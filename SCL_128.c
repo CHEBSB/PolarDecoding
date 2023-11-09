@@ -13,7 +13,7 @@ double bSNR_dB;         // Eb/N0 in dB
 #define N 128
 #define K 64
 #define n 7             // n = log2(N)
-#define L 4             // list size
+#define L 2             // list size
 
 typedef struct node {
     double l[L];    // LLR for all branches
@@ -238,6 +238,9 @@ for (bSNR_dB = 1.0; bSNR_dB <= 2.5; bSNR_dB += 0.5) {
         L, bSNR_dB, errBlock, run, ((double)errBlock) * 10 / run);
     /* printf("Error bit = %d\tBER = %lf\n", errbit,
         ((double)errbit) / K / run); */
+    for (i = 0; i < L; i++)     // for debug
+        printf("PM[%d] = %.2lf\t", i, PM[i]);
+    printf("\n");
 }
     // debug
     /*
@@ -528,13 +531,11 @@ void SCLdecode(double *y, int *u_hat)
             // init the first decoder only
             V[i][j]->bDone[0] = 0;  // undone yet
     // propagate frozen bits
-    for (j = 0; j < N; j++) {
+    for (j = 0; j < N; j++)
         if (inI[j] == 0) {          // frozen bit
             V[0][j]->b[0] = 0;
             updateBit(V[0][j], 0); 
-        } else
-            V[0][j]->bDone[0] = 0;
-    }
+        }
     // init lDone
     for (i = 0; i < n; i++)
         for (j = 0; j < N; j++) {
@@ -588,7 +589,7 @@ void SCLdecode(double *y, int *u_hat)
             // sort PMcand from small to large
             QuickSort(PMcand, 0, 2 * L - 1);
             med = PMcand[L];
-            if (PMcand[L] == PMcand[L - 1])
+            if (PMcand[L - 1] == med)
                 printf("Oops!\n");      // for debug
             // we only want PMcand[0] to PMcand[L - 1]
             for (k = 0; k < L; k++) {
@@ -619,6 +620,7 @@ void SCLdecode(double *y, int *u_hat)
                     // find space unoccupied
                     for (; surviv[i] != -1; i++);
                     if (i >= L) printf("Error!\n");
+                    // put branch1 to i
                     simpleCopy(k, i);
                     V[0][j]->b[k] = 0;
                     updateBit(V[0][j], k);
