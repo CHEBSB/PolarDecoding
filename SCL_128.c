@@ -13,7 +13,7 @@ double bSNR_dB;         // Eb/N0 in dB
 #define N 128
 #define K 64
 #define n 7             // n = log2(N)
-#define L 2             // list size
+#define L 8             // list size
 
 typedef struct node {
     double l[L];    // LLR for all branches
@@ -83,8 +83,9 @@ void updateBit(node *v, int k);
 void copyPath(int c, int k);
 // copy factor graph from c to k w/out bDone or lDone 
 void simpleCopy(int c, int k);
-// update Path metric for path k with bit value u
-double updatePM(int k, int j, int u);
+/* phi function for Path metric update
+k: path, j: bit index, u: bit value */
+double PHI(int k, int j, int u);
 // Quick sort: from small to large
 void QuickSort(double *list, int low, int high);
 // for quick sort: put the 1st element in place
@@ -238,9 +239,6 @@ for (bSNR_dB = 1.0; bSNR_dB <= 2.5; bSNR_dB += 0.5) {
         L, bSNR_dB, errBlock, run, ((double)errBlock) * 10 / run);
     /* printf("Error bit = %d\tBER = %lf\n", errbit,
         ((double)errbit) / K / run); */
-    for (i = 0; i < L; i++)     // for debug
-        printf("PM[%d] = %.2lf\t", i, PM[i]);
-    printf("\n");
 }
     // debug
     /*
@@ -366,9 +364,7 @@ void connectBCB(int i, int j)
 // recursively compute LLR at the k-th path (decoder)
 void getLLR(node *v, int k)
 {
-    if (v->lDone[k] == 1) {
-        return;
-    }
+    if (v->lDone[k] == 1) return;
     getLLR(v->cU, k);
     getLLR(v->cL, k);
     // if it is upperleft bit
@@ -379,9 +375,8 @@ void getLLR(node *v, int k)
             v->l[k] = v->cL->l[k] + v->cU->l[k];
         else
             v->l[k] = v->cL->l[k] - v->cU->l[k];
-    } else {
+    } else
         printf("Wrong propagation order!\n");
-    }
     v->lDone[k] = 1;
     return;
 }
@@ -444,31 +439,26 @@ void simpleCopy(int c, int k)
 }
 
 // updated Path metric for path k with the j-th bit := u
-double updatePM(int k, int j, int u)
+double PHI(int k, int j, int u)
 {   
-    double result = PM[k];  // the result to return
+    double result;      // the result to return
     double absL = fabs(V[0][j]->l[k]);
-    double delta;           // the term ln(1 + e^-x)
 
-    if (absL < 0.196) delta = 0.65;
-    else if (absL < 0.433)  delta = 0.55;
-    else if (absL < 0.71)   delta = 0.45;
-    else if (absL < 1.05)   delta = 0.35;
-    else if (absL < 1.508)  delta = 0.25;
-    else if (absL < 2.252)  delta = 0.15;
-    else if (absL < 4.5)    delta = 0.05;
-    else delta = 0;
-    result += delta;
-    if (u == 0) {
-        if (V[0][j]->l[k] < 0)
-            // result += -(1 - 2 * u) * V[0][j]->l[k];
-            result += absL;
-    } else if (u == 1) {
-        if (V[0][j]->l[k] > 0)
-            result += absL;
-    } else {
+    if (u != 0 && u != 1)
         printf("Illegal input u!\n");
-    }
+    // table look-up for the term ln(1 + e^-x)
+    if (absL < 0.196) result = 0.65;
+    else if (absL < 0.433)  result = 0.55;
+    else if (absL < 0.71)   result = 0.45;
+    else if (absL < 1.05)   result = 0.35;
+    else if (absL < 1.508)  result = 0.25;
+    else if (absL < 2.252)  result = 0.15;
+    else if (absL < 4.5)    result = 0.05;
+    else result = 0;
+    if ((u == 0 && V[0][j]->l[k] < 0)
+     || (u == 1 && V[0][j]->l[k] > 0))
+        // result += -(1 - 2 * u) * V[0][j]->l[k];
+        result += absL;
     return result;
 }
 
@@ -562,8 +552,8 @@ void SCLdecode(double *y, int *u_hat)
                 V[0][j]->b[k] = 0;      
                 V[0][j]->b[k + actL] = 1;
                 // update path metric
-                PM[k] = updatePM(k, j, 0);
-                PM[k + actL] = updatePM(k, j, 1);
+                PM[k + actL] = PM[k] + PHI(k, j, 1);
+                PM[k] = PM[k] + PHI(k, j, 0);
                 // propagate bit value
                 updateBit(V[0][j], k);
                 updateBit(V[0][j], k + actL);
@@ -571,7 +561,7 @@ void SCLdecode(double *y, int *u_hat)
             actL = actL * 2;    // double the # of paths
         } else {                // only need to update PM
             for (k = 0; k < actL; k++)
-                PM[k] = updatePM(k, j, 0);
+                PM[k] += PHI(k, j, 0);
         }
     }
     for (; j < N; j++) {
@@ -581,8 +571,8 @@ void SCLdecode(double *y, int *u_hat)
         if (inI[j] == 1) {              // if is info bit
             // compute all possible path metrics
             for (k = 0; k < L; k++) {
-                PMcand[k] = updatePM(k, j, 0);
-                PMcand[k + L] = updatePM(k, j, 1);
+                PMcand[k] = PM[k] + PHI(k, j, 0);
+                PMcand[k + L] = PM[k] + PHI(k, j, 1);
                 PM[k] = PMcand[k];
                 PM[k + L] = PMcand[k + L];
             }
@@ -632,7 +622,7 @@ void SCLdecode(double *y, int *u_hat)
             }
         } else {    // frozen bit => only need to update PM
             for (k = 0; k < L; k++)
-                PM[k] = updatePM(k, j, 0);
+                PM[k] += PHI(k, j, 0);
         }
     }
     // Decoder terminate: find the path with smallest PM
