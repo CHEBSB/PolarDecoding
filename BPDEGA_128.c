@@ -79,6 +79,7 @@ int main(void)
 {
     int i, j, k;                // looping indices
     int temp;                   // temporary storage
+    double bler;                // block error rate
 
     // allocate memory for V
     V = (node ***)calloc(n + 1, sizeof(node **));
@@ -116,12 +117,21 @@ int main(void)
         I[i] = Q[N - K + i];
         inI[I[i]] = 1;
     }
-for (bSNR_dB = 3.0; bSNR_dB <= 3; bSNR_dB += 0.5) {
+printf("iterMax = %d\n", iterMax);
+for (bSNR_dB = 1.0; bSNR_dB <= 5; bSNR_dB += 0.5) {
     std = pow(10, bSNR_dB / ((double)-20));
     // run DEGA
     BPDEGA();
+    // use union bound to get BLER
+    bler = 0;
+    for (i = 0; i < K; i++) 
+    // Q(x) = 0.5 * erfc(x / sqrt(2))
+    // ber = Q(sqrt(V[0][I[i]]->l / 2))
+        bler += erfc(sqrt(V[0][I[i]]->l) / 2.0);
+    bler = bler * 0.5;
     // final output
-    printf("For debug.\n");
+    printf("bSNR = %.2lf\tBLER = %lf\t\tBER = %lf e-2\n",
+        bSNR_dB, bler, bler * 100 / K);
 }
     return 0;
 }
@@ -270,18 +280,17 @@ double phi_inv(double x)
 		return -(log(x) + 0.4254) / 0.2832;
 	if (x >= 0.0006452237)
 		return -(log(x) + 0.6646297809) / 0.26725134794;
-	else {
-		// x0 = 25;
-		x1 = 25 - (phi(25) - x) / derivative_phi(25);
-		delta = fabs(x1 - 25);
-		// epsilon = 1e-3;
-		while (delta >= 1e-3) {
-			x0 = x1;
-			x1 = x1 - (phi(x1) - x) / derivative_phi(x1);
-			delta = fabs(x1 - x0);
-		}
-		return x1;
+	// else 
+	// x0 = 25;
+	x1 = 25 - (phi(25) - x) / derivative_phi(25);
+	delta = fabs(x1 - 25);
+	// epsilon = 1e-3;
+	while (delta >= 1e-3) {
+		x0 = x1;
+		x1 = x1 - (phi(x1) - x) / derivative_phi(x1);
+		delta = fabs(x1 - x0);
 	}
+	return x1;
 } 
 // derivative of the piecewise approximation of phi function
 double derivative_phi(double x)
@@ -327,7 +336,7 @@ void BPDEGA()
             V[i][j]->r = 0; 
     for (j = 0; j < N; j++) {
         if (inI[j] == 0)        // frozen bit => infinity
-            V[0][j]->r = 99999;
+            V[0][j]->r = 999;
         else                    // info bit => 0
             V[0][j]->r = 0;   
     }
