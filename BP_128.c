@@ -7,12 +7,14 @@ G = F^{\otimes n} (no bit reversal)
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
 
 double bSNR_dB;             // Eb/N0 in dB
 #define N 128
 #define K 64
 #define n 7
 #define iterMax 100
+#define BLE 200
 
 typedef struct node {
     double l;       // left-propagating message (LLR)
@@ -30,8 +32,8 @@ typedef struct node {
     struct node *cL;        // lower child
 } node;
 
-// seed for generating random number in (0, 1)
-const unsigned long long SEED = 1024; 
+// seed for generating random number
+unsigned long long SEED; 
 unsigned long long RANV;
 int RANI = 0;
 double n1, n2;              // gaussian noise
@@ -83,14 +85,16 @@ int main(void)
     int U[] = {0, 0, 0, 0, 0, 0};   // previous bits
     int b;                      // current bit
     int PN[63];                 // 1 period of PN sequence
-    int errBlock;               // number of block errors
+    int errBlock = 0;           // number of block errors
     int temp;                   // temporary storage
     int u[N];                   // encoder input
     int x[N];                   // polar codeword
     double y[N];                // codeword + Gaussian noise
     int u_hat[N];               // decoder's output
-    int errbit;                 // # of bit error
+    int errbit = 0;             // # of bit error
 
+    SEED = ((unsigned long long)(time(NULL))) % 1000;
+    printf("SEED = %ld\n", SEED);   // for debug
     // allocate memory for V
     V = (node ***)calloc(n + 1, sizeof(node **));
     for (i = 0; i <= n; i++) {
@@ -161,7 +165,7 @@ for (bSNR_dB = 1.0; bSNR_dB <= 4; bSNR_dB += 0.5) {
     errbit = 0;
     std = pow(10, bSNR_dB / ((double)-20));
     // run simulation until desired error blocks
-    for (run = 0; errBlock < 100; run++) {
+    for (run = 0; errBlock < BLE; run++) {
         // reset vectors to all-zero
         for (i = 0; i < N; i++) {
             u_hat[i] = 0;
@@ -210,7 +214,9 @@ for (bSNR_dB = 1.0; bSNR_dB <= 4; bSNR_dB += 0.5) {
     // final output
     printf("bSNR = %.2lf\terror block = %d\trun = %d\t",
         bSNR_dB, errBlock, run);
-    printf("BLER = %lf\n", ((double)errBlock) / run);
+    printf("BLER = %lfe-2\tBER = %lfe-2\n",
+        ((double)errBlock) * 100 / run,
+        ((double)errbit) * 100 / K / run);
 }
     return 0;
 }

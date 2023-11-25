@@ -1,5 +1,5 @@
 /*
-Simulation of successive cancellation (SC) decoder
+Simulation of belief propagation (BP) decoder
 for polar code with N = 1024 and rate = 0.5
 Follow factor graph in Lee's thesis
 G = F^{\otimes n} (no bit reversal)
@@ -7,12 +7,14 @@ G = F^{\otimes n} (no bit reversal)
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
 
 double bSNR_dB;             // Eb/N0 in dB
 #define N 1024
 #define K 512
 #define n 10
 #define iterMax 100
+#define BLE 200
 
 typedef struct node {
     double l;       // left-propagating message (LLR)
@@ -31,7 +33,7 @@ typedef struct node {
 } node;
 
 // seed for generating random number in (0, 1)
-const unsigned long long SEED = 1024; 
+unsigned long long SEED; 
 unsigned long long RANV;
 int RANI = 0;
 double n1, n2;              // gaussian noise
@@ -130,6 +132,9 @@ int main(void)
     int u_hat[N];               // decoder's output
     int errbit;                 // # of bit error
 
+
+    SEED = ((unsigned long long)(time(NULL))) % 1000;
+    printf("SEED = %ld\n", SEED);   // for debug
     // allocate memory for V
     V = (node ***)calloc(n + 1, sizeof(node **));
     for (i = 0; i <= n; i++) {
@@ -200,7 +205,7 @@ for (bSNR_dB = 1.0; bSNR_dB <= 3.5; bSNR_dB += 0.5) {
     errbit = 0;
     std = pow(10, bSNR_dB / ((double)-20));
     // run simulation until desired error blocks
-    for (run = 0; errBlock < 50; run++) {
+    for (run = 0; errBlock < BLE; run++) {
         // reset vectors to all-zero
         for (i = 0; i < N; i++) {
             u_hat[i] = 0;
@@ -363,7 +368,7 @@ void connectBCB(int i, int j)
     return;
 }
 
-// conventional BP decoder for polat codes
+// conventional BP decoder for polar codes
 void BP(double *y, int *u_hat)
 {
     int i, j;       // looping indices
