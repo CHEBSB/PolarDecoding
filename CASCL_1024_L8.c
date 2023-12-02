@@ -159,11 +159,10 @@ int main(void)
     double y[N];                // codeword + Gaussian noise
     int u_hat[N];               // decoder's output
     int errbit;                 // # of bit error
-    time_t sec;                 // system time to be seed
 
     // set random seed
-    sec = time(NULL);
-    SEED = ((unsigned long long)sec) % 100000;
+    SEED = ((unsigned long long)(time(NULL))) % 10000;
+    printf("SEED = %ld\n", SEED);   // for debug
     // allocate memory for PM
     PM = (double *)calloc(2 * L, sizeof(double));
     PMcand = (double *)calloc(2 * L, sizeof(double));
