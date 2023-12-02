@@ -1,11 +1,10 @@
 /*
-Simulation of CRC-aided SCL decoder
-with CRC given by g(D) = D^24 + D^23 + D^21 + D^20 + D^17
-+ D^15 + D^13+ D^12 + D^8 + D^4 + D^2 + D + 1
-for polar code with N = 128 and K = 64
+Simulation of CRC-aided SCL decoder of N = 128, rate 0.5
+with CRC given by g(D) = D^6 + D^5 + 1
 Assume list size L = power of 2
 Follow factor graph in Lee's thesis
 G = F^{\otimes n} (no bit reversal)
+
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,9 +15,9 @@ double bSNR_dB;         // Eb/N0 in dB
 #define N 128
 #define K 64
 #define n 7             // n = log2(N)
-#define r 24            // # of bits added by CRC
+#define r 6             // number of bits added by CRC
 #define L 8             // list size
-#define BLE 100         // desired # of block error
+#define BLE 200         // desired # of block error
 
 typedef struct node {
     double l[L];    // LLR for all branches
@@ -55,7 +54,7 @@ const int Q[N] = {
 90, 102, 105, 92, 47, 106, 55, 113, 79, 108, 59, 114, 87,
 116, 61, 91, 120, 62, 103, 93, 107, 94, 109, 115, 110, 117,
 118, 121, 122, 63, 124, 95, 111, 119, 123, 125, 126, 127};
-int I[K];                   // information set
+int I[K + r];               // information set
 int inI[N];                 // whether a bit is in I
 // n-kronecker product of F
 int **Fn; 
@@ -99,7 +98,7 @@ int Partition(double *list, int low, int high);
 // check if the k-th path pass cyclic redundancy check
 int CRcheck(int k);
 // successive cancellation list decoder
-void SCLdecode(double *y, int *u_hat);
+void CASCL(double *y, int *u_hat);
 
 int main(void)
 {
@@ -107,24 +106,23 @@ int main(void)
     int run;                    // sumulation index
     int m = 0;                  // index for PN sequence
     // stepsize of m after 1 iteration
-    const int step_m = (K - r) % 63;                
+    const int step_m = K % 63;                
     // to generate PN sequence
     int U[] = {0, 0, 0, 0, 0, 0};   // previous bits
     int b;                      // current bit
     int PN[63];                 // 1 period of PN sequence
     int errBlock;               // number of block errors
     int temp;                   // temporary storage
-    int w[K];                   // CRC encoder output
-    int u[N];                   // polar encoder input
+    int w[K + r];               // CRC encoder output
+    int u[N];                   // encoder input
     int x[N];                   // polar codeword
     double y[N];                // codeword + Gaussian noise
     int u_hat[N];               // decoder's output
     int errbit;                 // # of bit error
-    time_t sec;                 // system time to be seed
 
     // set random seed
-    sec = time(NULL);
-    SEED = ((unsigned long long)sec) % 1000;
+    SEED = ((unsigned long long)(time(NULL))) % 10000;
+    printf("SEED = %ld\n", SEED);   // for debug
     // allocate memory for PM
     PM = (double *)calloc(2 * L, sizeof(double));
     PMcand = (double *)calloc(2 * L, sizeof(double));
@@ -172,9 +170,9 @@ int main(void)
     for (i = 0; i < N; i++)
         inI[i] = 0;
     // determine the information set I
-    for (i = 0; i < K; i++) {
+    for (i = 0; i < K + r; i++) {
         // pick most reliable channels
-        I[i] = Q[N - K + i];
+        I[i] = Q[N - (K + r) + i];
         inI[I[i]] = 1;
     }
     // read Fn from file
@@ -193,7 +191,7 @@ int main(void)
     should keep 0 throughout simualtion) */
     for (i = 0; i < N; i++)
         u[i] = 0;
-for (bSNR_dB = 1.0; bSNR_dB <= 2.0; bSNR_dB += 0.5) {
+for (bSNR_dB = 1.0; bSNR_dB <= 3.0; bSNR_dB += 0.5) {
     errBlock = 0;
     errbit = 0;
     std = pow(10, bSNR_dB / ((double)-20));
@@ -204,34 +202,20 @@ for (bSNR_dB = 1.0; bSNR_dB <= 2.0; bSNR_dB += 0.5) {
             u_hat[i] = 0;
             x[i] = 0;
         }
-        for (i = 0; i < K; i++) 
+        // CRC encoder with
+        for (i = 0; i < K + r; i++) 
             w[i] = 0;
-        // CRC encoder
-        /*
-        g(D) = D^24 + D^23 + D^21 + D^20 + D^17 + D^15
-        + D^13+ D^12 + D^8 + D^4 + D^2 + D + 1
-        */
-        for (i = 0; i < K - r; i++)
+        /* use PN sequence to generate K bits,
+        then encode by g(x) = D^6 + D^5 + 1 */
+        for (i = 0; i < K; i++)
             if (PN[(m + i) % 63] == 1) {
                 w[i] += 1;
-                w[i + 1] += 1;
-                w[i + 2] += 1;
-                w[i + 4] += 1;
-                w[i + 8] += 1;
-                w[i + 12] += 1;
-                w[i + 13] += 1;
-                w[i + 15] += 1;
-                w[i + 17] += 1;
-                w[i + 20] += 1;
-                w[i + 21] += 1;
-                w[i + 23] += 1;
-                w[i + 24] += 1;
+                w[i + 5] += 1;
+                w[i + 6] += 1;
             }
-        // leave the mod-2 operation to the next part
-        // Encoder
-        /* use PN sequence to have K bits, and
-        put them into information set in u */
-        for (i = 0; i < K; i++) {
+        // Polar Encoder
+        // put them into information set in u
+        for (i = 0; i < K + r; i++) {
             u[I[i]] = (w[i] % 2);
         }
         // encode by Fn
@@ -256,10 +240,10 @@ for (bSNR_dB = 1.0; bSNR_dB <= 2.0; bSNR_dB += 0.5) {
             }   
         }
         // SC decoder
-        SCLdecode(y, u_hat);
+        CASCL(y, u_hat);
         // check info bits for block error
         temp = 0;           // flag for loop
-       for (i = 0; i < K; i++) {
+       for (i = 0; i < K + r; i++) {
             if (u[I[i]] != u_hat[I[i]]) {
                 temp = 1;
                 errbit += 1;
@@ -270,10 +254,10 @@ for (bSNR_dB = 1.0; bSNR_dB <= 2.0; bSNR_dB += 0.5) {
         if (m >= 63) m -= 63;
     }
     // final output
-    printf("L = %d\tbSNR = %.2lf\terror block = %d\trun = %d\tBLER = %lf * 10^-1\n",
-        L, bSNR_dB, errBlock, run, ((double)errBlock) * 10 / run);
+    printf("L = %d\tbSNR = %.2lf\terror block = %d\trun = %d\tBLER = %lfe-3\n",
+        L, bSNR_dB, errBlock, run, ((double)errBlock) / (run / 1000.0));
     /* printf("Error bit = %d\tBER = %lf\n", errbit,
-        ((double)errbit) / K / run); */
+        ((double)errbit) / (K + r) / run); */
 }
     return 0;
 }
@@ -534,36 +518,25 @@ int Partition(double *list, int low, int high)
 int CRcheck(int k)
 {
     int i;          // looping index
-    int C[K];       // CRC codeword to check
+    int C[K + r];       // CRC codeword to check
 
     // copy the decoded information bits to C
-    for (i = 0; i < K; i++) 
+    for (i = 0; i < K + r; i++) 
         C[i] = V[0][I[i]]->b[k];
-    /* long division by g(D) = D^24 + D^23 + D^21 + D^20
-    + D^17 + D^15 + D^13+ D^12 + D^8 + D^4 + D^2 + D + 1 */
-    for (i = K - 1; i >= 24; i--) 
+    // long division by g(D) = D^6 + D^5 + 1
+    for (i = K + r - 1; i >= r; i--) 
         if (C[i] == 1) {
             C[i] = 0;
             C[i - 1] = (C[i - 1] + 1) % 2;
-            C[i - 3] = (C[i - 3] + 1) % 2;
-            C[i - 4] = (C[i - 4] + 1) % 2;
-            C[i - 7] = (C[i - 7] + 1) % 2;
-            C[i - 9] = (C[i - 9] + 1) % 2;
-            C[i - 11] = (C[i - 11] + 1) % 2;
-            C[i - 12] = (C[i - 12] + 1) % 2;
-            C[i - 16] = (C[i - 16] + 1) % 2;
-            C[i - 20] = (C[i - 20] + 1) % 2;
-            C[i - 22] = (C[i - 22] + 1) % 2;
-            C[i - 23] = (C[i - 23] + 1) % 2;
-            C[i - 24] = (C[i - 24] + 1) % 2;
+            C[i - 6] = (C[i - 6] + 1) % 2;
         }
-    for (i = 23; i >= 0; i--) 
+    for (i = r - 1; i >= 0; i--) 
         if (C[i] == 1) return 0;
     return 1;
 }
 
-// successive cancellation decoder
-void SCLdecode(double *y, int *u_hat)
+// CRC-aided successive cancellation decoder
+void CASCL(double *y, int *u_hat)
 {
     int i, j, k;                // looping indices
     int actL;                   // number of active paths
