@@ -1,6 +1,6 @@
 /*
 Gaussian Approximation of density evolution
-for BPR decoding of polar codes where N = 128, K = 64.
+for BPR decoding of polar codes where N = 128, K = 64
 Assume all zero codewords transmitted
 Make use of matrix to propagate error probability
 and compute the unfrozen BER at stage 0
@@ -50,7 +50,9 @@ int I[K];                   // information set
 int inI[N];                 // whether a bit is in I
 int bRev[N];                // bit reversal for [0, 127]
 // M1[k][i]: positions of 1 in the i-th column of M_k
-int M1[n + 1][N][N / 2]; 
+int ***M1; 
+// weight of columns of M
+int Mw[n + 1][N];
 // all nodes on factor graph
 node ***V;
 // whether a node is init
@@ -79,13 +81,26 @@ int main(void)
     int temp;                   // temporary storage
     double bler;                // block error rate
 
+
+    // allocate memory for M1
+    M1 = (int ***)calloc(n + 1, sizeof(int **));
+    M1[0] = NULL;       // don't use the 0-th
+    for (k = 1; k <= n; k++)        // each M has N columns
+        M1[k] = (int **)calloc(N, sizeof(int *));
+    // read Mw from file to decide memory use
+    for (k = 1; k <= n; k++) 
+        for (i = 0; i < N; i++) {
+            scanf("%d", &temp);
+            Mw[k][i] = temp;
+            M1[k][i] = (int *)calloc(temp, sizeof(int));
+        }
+    for (i = 0; i < N; i++)         // set the 0-th to -1
+        Mw[0][i] = -1;
     // read M from file
     for (k = 1; k <= n; k++) {
     // for stage k
-        for (j = 0; j < N / 2; j++) // fill up 0-th column
-                M1[k][0][j] = -1;
-        for (i = 1; i < N; i++)     // skip the 0-th column
-            for (j = 0; j < N / 2; j++) {
+        for (i = 0; i < N; i++)
+            for (j = 0; j < Mw[k][i]; j++) {
                 scanf("%d", &temp);
                 M1[k][i][j] = temp;
             }
@@ -140,7 +155,7 @@ int main(void)
         I[i] = Q[N - K + i];
         inI[I[i]] = 1;
     }
-for (bSNR_dB = 1.0; bSNR_dB <= 4; bSNR_dB += 0.5) {
+for (bSNR_dB = 3.0; bSNR_dB <= 4; bSNR_dB += 0.5) {
     printf("bSNR = %.2lf\t", bSNR_dB);
     std = pow(10, bSNR_dB / ((double)-20));
     // run DEGA
@@ -376,8 +391,8 @@ void BPRDEGA()
                     ) + V[i][j]->cL->l;
                 }
             }
-        if (iter % 2 == 1) {   // every 2 iterations
-        // if (iter > 1 && iter < 10) {
+        // if (iter % 2 == 1) {   // every 2 iterations
+        if (iter > 1 && iter < 8) {
             printf("%2d\t", iter + 1);
             // for each stage
         // for i = 0
@@ -386,7 +401,7 @@ void BPRDEGA()
             for (j = 0; j < K; j++) 
                 E[i] += erfc(sqrt(V[0][bRev[I[j]]]->l) / 2.0);
             E[i] = E[i] * 0.5;
-            printf("%lf\t", E[i]);
+            printf("%lf  ", E[i]);
         // for the rest: need propagation
             for (i = 1; i <= n; i++) {
                 // compute the LLR for bit value
@@ -396,8 +411,7 @@ void BPRDEGA()
                 // compute LLR of the j-th info bit
                 for (j = 0; j < K; j++) {
                     tempL = V[i][M1[i][bRev[I[j]]][0]]->W;
-                    for (k = 1; k < (N / 2)
-                    && M1[i][bRev[I[j]]][k] != -1; k++) 
+                    for (k = 1; k < Mw[i][bRev[I[j]]]; k++)
                         tempL = CHK(tempL,
                         V[i][M1[i][bRev[I[j]]][k]]->W);
                     // convert LLR back to error prob
@@ -408,7 +422,7 @@ void BPRDEGA()
                 for (j = 0; j < K; j++) 
                     E[i] += V[0][bRev[I[j]]]->p;
                 // printf("E%d = %lf\t", i, E[i]);
-                printf("%lf\t", E[i]);
+                printf("%lf  ", E[i]);
             }
             printf("\n");
         }
