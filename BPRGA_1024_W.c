@@ -25,6 +25,7 @@ typedef struct node {
     */
     double p;           // error probability of this bit
     double W;           // ln(Pr{v = 0} / Pr{v = 1})
+    int isFrozen;       // if this bit is frozen to 0
     int leftP;
     int rightP;
     struct node *pU;        // upper parent
@@ -151,26 +152,6 @@ int main(void)
         for (j = 0; j < N; j++) 
             V[i][j] = (node *)calloc(1, sizeof(node));
     }
-// Initialize the factor graph
-    // mark all nodes as uninitialized
-    for (i = 0; i <= n; i++)
-        for (j = 0; j < N; j++)
-            initV[i][j] = 0;
-    // init pointers in V (= connect the factor graph)
-    // the leftmost stage
-    for (j = 0; j < N; j++) {
-        V[0][j]->pU = NULL; // first layer has no parent
-        V[0][j]->pL = NULL;
-        connectBCB(0, j);
-    }
-    for (i = 1; i < n; i++)
-        for (j = 0; j < N; j++) 
-            connectBCB(i, j);
-    // the rightmost stage has no child
-    for (j = 0; j < N; j++) {
-        V[n][j]->cU = NULL;
-        V[n][j]->cL = NULL;
-    }
     // build the bit reversal
     for (i = 0; i < N; i++) {
         bRev[i] = 0;            // set to 0 at first
@@ -193,6 +174,30 @@ int main(void)
         // pick most reliable channels
         I[i] = Q[N - K + i];
         inI[I[i]] = 1;
+    }
+// Initialize the factor graph
+    // mark all nodes as uninitialized
+    for (i = 0; i <= n; i++)
+        for (j = 0; j < N; j++)
+            initV[i][j] = 0;
+    // init pointers in V (= connect the factor graph)
+    // the leftmost stage
+    for (j = 0; j < N; j++) {
+        V[0][j]->pU = NULL; // first layer has no parent
+        V[0][j]->pL = NULL;
+        if (inI[bRev[j]] == 0) 
+            V[0][j]->isFrozen = 1;
+        else
+            V[0][j]->isFrozen = 0;
+        connectBCB(0, j);
+    }
+    for (i = 1; i < n; i++)
+        for (j = 0; j < N; j++) 
+            connectBCB(i, j);
+    // the rightmost stage has no child
+    for (j = 0; j < N; j++) {
+        V[n][j]->cU = NULL;
+        V[n][j]->cL = NULL;
     }
 for (bSNR_dB = 2.0; bSNR_dB <= 4; bSNR_dB += 0.5) {
     printf("bSNR = %.2lf\t", bSNR_dB);
@@ -293,6 +298,18 @@ void connectBCB(int i, int j)
     V[i + 1][j]->pL = V[i][j + pow2(d)];
     V[i + 1][j + pow2(d)]->pU = V[i][j];
     V[i + 1][j + pow2(d)]->pL = V[i][j + pow2(d)];
+    // propagate frozen bit if any
+    if (V[i][j + pow2(d)]->isFrozen == 1
+               && V[i][j]->isFrozen == 1) {
+        V[i][j]->cU->isFrozen = 1;
+        V[i][j]->cL->isFrozen = 1;
+    } else if (V[i][j + pow2(d)]->isFrozen == 1) {
+        V[i][j]->cU->isFrozen = 0;
+        V[i][j]->cL->isFrozen = 1;
+    } else {
+        V[i][j]->cU->isFrozen = 0;
+        V[i][j]->cL->isFrozen = 0;
+    }
     return;
 }
 // piecewise approximation of phi function
@@ -436,11 +453,11 @@ void BPRDEGA()
             // for each stage
         // for i = 0
             // compute E[i], the approx BLER
-            E[i] = 0;
+            E[0] = 0;
             for (j = 0; j < K; j++) 
-                E[i] += erfc(sqrt(V[0][bRev[I[j]]]->l) / 2.0);
-            E[i] = E[i] * 0.5;
-            printf("%.5e  ", E[i]);
+                E[0] += erfc(sqrt(V[0][bRev[I[j]]]->l) / 2.0);
+            E[0] = E[0] * 0.5;
+            printf("%.5e  ", E[0]);
         // for the rest: need propagation
             for (i = 1; i <= n; i++) {
                 // compute the LLR for bit value
@@ -450,10 +467,11 @@ void BPRDEGA()
                 for (j = 0; j < K; j++) {
                     tempL = V[i][M1[i][bRev[I[j]]][0]]->W;
                     for (k = 1; k < Mw[i][bRev[I[j]]]; k++)
-                        tempL = CHK(tempL,
-                        V[i][M1[i][bRev[I[j]]][k]]->W);
+                        if (V[i][M1[i][bRev[I[j]]][k]]->isFrozen == 0)
+                            tempL = CHK(tempL,
+                            V[i][M1[i][bRev[I[j]]][k]]->W);
                     // convert LLR back to error prob
-                    V[0][bRev[I[j]]]->p = erfc(sqrt(tempL) / 2.0);
+                    V[0][bRev[I[j]]]->p = 0.5 * erfc(sqrt(tempL) / 2.0);
                 }
                 // compute E[i], the approx BLER
                 E[i] = 0;
